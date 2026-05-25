@@ -249,4 +249,42 @@ contract CopelandVotingTest is Test {
         vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.DuplicateRanking.selector, 1));
         voting.castBallot(id, r);
     }
+
+    function _giveWeight(address voter, uint256 snapshotBlock, uint256 weight) internal {
+        token.setPastVotes(voter, snapshotBlock, weight);
+    }
+
+    function test_tallyBallots_singleCallBuildsMatrix() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        _giveWeight(ALICE, cfg.snapshotBlock, 100);
+        _giveWeight(BOB,   cfg.snapshotBlock, 50);
+
+        // Alice ranks 0>1>2
+        uint8[] memory ra = new uint8[](3);
+        ra[0] = 0; ra[1] = 1; ra[2] = 2;
+        vm.prank(ALICE); voting.castBallot(id, ra);
+
+        // Bob ranks 2>1 (partial, says nothing about 0)
+        uint8[] memory rb = new uint8[](2);
+        rb[0] = 2; rb[1] = 1;
+        vm.prank(BOB); voting.castBallot(id, rb);
+
+        vm.warp(cfg.endTime + 1);
+        bool done = voting.tallyBallots(id, 10);
+        assertTrue(done);
+
+        int256[][] memory M = voting.getPairwiseMatrix(id);
+        assertEq(M.length, 3);
+        // From Alice: (0,1)+=100, (0,2)+=100, (1,2)+=100
+        // From Bob:   (2,1)+=50
+        assertEq(M[0][1], 100);
+        assertEq(M[0][2], 100);
+        assertEq(M[1][2], 100);
+        assertEq(M[2][1], 50);
+        // Diagonal and unstated entries stay 0
+        assertEq(M[0][0], 0);
+        assertEq(M[1][0], 0);
+        assertEq(M[2][0], 0);
+    }
 }

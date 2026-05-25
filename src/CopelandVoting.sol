@@ -118,8 +118,41 @@ contract CopelandVoting is ICopelandVoting {
         emit BallotCast(electionId, msg.sender, ranking);
     }
 
-    function tallyBallots(uint256, uint256) external pure returns (bool) {
-        revert("not implemented");
+    function tallyBallots(uint256 electionId, uint256 maxBallots) external returns (bool done) {
+        Election storage e = _elections[electionId];
+        uint256 c = e.candidates.length;
+        if (c == 0) revert UnknownElection(electionId);
+        if (e.phase == TallyPhase.Finalized) revert TallyAlreadyFinalized();
+        if (block.timestamp <= e.endTime) revert VotingStillOpen(e.endTime, block.timestamp);
+
+        if (e.phase == TallyPhase.NotStarted) e.phase = TallyPhase.Tallying;
+
+        uint256 total = e.voters.length;
+        uint256 cursor = e.ballotsProcessed;
+        if (cursor >= total) {
+            return true;
+        }
+        uint256 end = cursor + maxBallots;
+        if (end > total) end = total;
+
+        for (uint256 vi = cursor; vi < end; vi++) {
+            address voter = e.voters[vi];
+            uint256 weight = e.votingToken.getPastVotes(voter, e.snapshotBlock);
+            if (weight == 0) continue;
+            uint8[] storage ranking = e.ballots[voter];
+            uint256 k = ranking.length;
+            for (uint256 a = 0; a < k; a++) {
+                uint8 ia = ranking[a];
+                for (uint256 b = a + 1; b < k; b++) {
+                    uint8 ib = ranking[b];
+                    e.pairwiseFlat[uint256(ia) * c + uint256(ib)] += int256(weight);
+                }
+            }
+        }
+
+        e.ballotsProcessed = end;
+        emit TallyProgress(electionId, end, total);
+        done = end == total;
     }
 
     function finalize(uint256) external pure {
@@ -134,8 +167,17 @@ contract CopelandVoting is ICopelandVoting {
         return _elections[electionId].ballots[voter];
     }
 
-    function getPairwiseMatrix(uint256) external pure returns (int256[][] memory) {
-        revert("not implemented");
+    function getPairwiseMatrix(uint256 electionId) external view returns (int256[][] memory matrix) {
+        Election storage e = _elections[electionId];
+        uint256 c = e.candidates.length;
+        matrix = new int256[][](c);
+        for (uint256 i = 0; i < c; i++) {
+            int256[] memory row = new int256[](c);
+            for (uint256 j = 0; j < c; j++) {
+                row[j] = e.pairwiseFlat[i * c + j];
+            }
+            matrix[i] = row;
+        }
     }
 
     function getCopelandScores(uint256) external pure returns (int256[] memory) {

@@ -90,8 +90,17 @@ contract CopelandVoting is ICopelandVoting {
 
     // --- stubs (to be implemented in later tasks) ---
 
-    function castBallot(uint256, uint8[] calldata) external pure {
-        revert("not implemented");
+    function castBallot(uint256 electionId, uint8[] calldata ranking) external {
+        Election storage e = _elections[electionId];
+        if (e.candidates.length == 0) revert UnknownElection(electionId);
+        // (Time window / phase / index validation added in Task 9)
+
+        e.ballots[msg.sender] = ranking;
+        if (e.voterIndexPlusOne[msg.sender] == 0) {
+            e.voters.push(msg.sender);
+            e.voterIndexPlusOne[msg.sender] = e.voters.length; // 1-based
+        }
+        emit BallotCast(electionId, msg.sender, ranking);
     }
 
     function tallyBallots(uint256, uint256) external pure returns (bool) {
@@ -106,8 +115,8 @@ contract CopelandVoting is ICopelandVoting {
         revert("not implemented");
     }
 
-    function getBallot(uint256, address) external pure returns (uint8[] memory) {
-        revert("not implemented");
+    function getBallot(uint256 electionId, address voter) external view returns (uint8[] memory) {
+        return _elections[electionId].ballots[voter];
     }
 
     function getPairwiseMatrix(uint256) external pure returns (int256[][] memory) {
@@ -122,7 +131,7 @@ contract CopelandVoting is ICopelandVoting {
         revert("not implemented");
     }
 
-    function getVoters(uint256) external pure returns (address[] memory) {
-        revert("not implemented");
+    function getVoters(uint256 electionId) external view returns (address[] memory) {
+        return _elections[electionId].voters;
     }
 }

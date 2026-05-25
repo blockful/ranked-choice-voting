@@ -121,4 +121,57 @@ contract CopelandVotingTest is Test {
         vm.expectRevert(ICopelandVoting.ZeroToken.selector);
         voting.createElection(cfg);
     }
+
+    function test_castBallot_storesRankingAndAppendsVoter() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r = new uint8[](3);
+        r[0] = 2; r[1] = 0; r[2] = 1;
+
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
+
+        uint8[] memory stored = voting.getBallot(id, ALICE);
+        assertEq(stored.length, 3);
+        assertEq(stored[0], 2);
+        assertEq(stored[1], 0);
+        assertEq(stored[2], 1);
+
+        address[] memory vs = voting.getVoters(id);
+        assertEq(vs.length, 1);
+        assertEq(vs[0], ALICE);
+    }
+
+    function test_castBallot_emitsEvent() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r = new uint8[](2);
+        r[0] = 0; r[1] = 1;
+
+        vm.expectEmit(true, true, false, true);
+        emit ICopelandVoting.BallotCast(id, ALICE, r);
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
+    }
+
+    function test_castBallot_emptyBallotAllowed() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r = new uint8[](0);
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
+        assertEq(voting.getBallot(id, ALICE).length, 0);
+        assertEq(voting.getVoters(id).length, 1);
+    }
+
+    function test_castBallot_multipleVotersAppendInOrder() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r = new uint8[](1);
+        r[0] = 0;
+        vm.prank(ALICE); voting.castBallot(id, r);
+        vm.prank(BOB);   voting.castBallot(id, r);
+        vm.prank(CAROL); voting.castBallot(id, r);
+        address[] memory vs = voting.getVoters(id);
+        assertEq(vs.length, 3);
+        assertEq(vs[0], ALICE);
+        assertEq(vs[1], BOB);
+        assertEq(vs[2], CAROL);
+    }
 }

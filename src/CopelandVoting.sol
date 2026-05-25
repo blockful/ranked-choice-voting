@@ -39,6 +39,23 @@ contract CopelandVoting is ICopelandVoting {
     }
 
     function createElection(ElectionConfig calldata cfg) external returns (uint256 electionId) {
+        uint256 c = cfg.candidates.length;
+        if (c == 0) revert EmptyCandidates();
+        if (c > MAX_CANDIDATES) revert TooManyCandidates(c, MAX_CANDIDATES);
+        if (address(cfg.votingToken) == address(0)) revert ZeroToken();
+        if (cfg.snapshotBlock >= block.number) revert InvalidSnapshotBlock(cfg.snapshotBlock, block.number);
+        if (cfg.startTime >= cfg.endTime) revert InvalidTimeWindow(cfg.startTime, cfg.endTime);
+        if (cfg.endTime <= block.timestamp) revert EndTimeInPast(cfg.endTime, block.timestamp);
+
+        // Duplicate-candidate check: O(c^2) is fine since c <= 64
+        for (uint256 i = 0; i < c; i++) {
+            for (uint256 j = i + 1; j < c; j++) {
+                if (cfg.candidates[i] == cfg.candidates[j]) {
+                    revert DuplicateCandidate(cfg.candidates[i]);
+                }
+            }
+        }
+
         electionId = _electionCount;
         Election storage e = _elections[electionId];
         e.candidates = cfg.candidates;
@@ -48,7 +65,7 @@ contract CopelandVoting is ICopelandVoting {
         e.endTime = cfg.endTime;
         e.metadataURI = cfg.metadataURI;
         e.creator = msg.sender;
-        e.pairwiseFlat = new int256[](cfg.candidates.length * cfg.candidates.length);
+        e.pairwiseFlat = new int256[](c * c);
         unchecked {
             _electionCount = electionId + 1;
         }

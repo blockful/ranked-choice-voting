@@ -71,4 +71,54 @@ contract CopelandVotingTest is Test {
         assertEq(uint8(v.phase), uint8(ICopelandVoting.TallyPhase.NotStarted));
         assertEq(v.ballotsProcessed, 0);
     }
+
+    function test_createElection_revertsOnEmptyCandidates() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        cfg.candidates = new bytes32[](0);
+        vm.expectRevert(ICopelandVoting.EmptyCandidates.selector);
+        voting.createElection(cfg);
+    }
+
+    function test_createElection_revertsOnTooManyCandidates() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        cfg.candidates = new bytes32[](65);
+        for (uint256 i = 0; i < 65; i++) cfg.candidates[i] = bytes32(i + 1);
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.TooManyCandidates.selector, 65, 64));
+        voting.createElection(cfg);
+    }
+
+    function test_createElection_revertsOnDuplicateCandidate() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        cfg.candidates[2] = cfg.candidates[0]; // duplicate
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.DuplicateCandidate.selector, cfg.candidates[0]));
+        voting.createElection(cfg);
+    }
+
+    function test_createElection_revertsOnFutureSnapshotBlock() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        cfg.snapshotBlock = block.number; // not strictly past
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.InvalidSnapshotBlock.selector, block.number, block.number));
+        voting.createElection(cfg);
+    }
+
+    function test_createElection_revertsOnInvalidTimeWindow() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        cfg.endTime = cfg.startTime; // not strictly greater
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.InvalidTimeWindow.selector, cfg.startTime, cfg.endTime));
+        voting.createElection(cfg);
+    }
+
+    function test_createElection_revertsOnEndTimeInPast() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        vm.warp(cfg.endTime + 1);
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.EndTimeInPast.selector, cfg.endTime, block.timestamp));
+        voting.createElection(cfg);
+    }
+
+    function test_createElection_revertsOnZeroToken() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        cfg.votingToken = IVotes(address(0));
+        vm.expectRevert(ICopelandVoting.ZeroToken.selector);
+        voting.createElection(cfg);
+    }
 }

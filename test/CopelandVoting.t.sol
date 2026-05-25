@@ -287,4 +287,71 @@ contract CopelandVotingTest is Test {
         assertEq(M[1][0], 0);
         assertEq(M[2][0], 0);
     }
+
+    function test_tallyBallots_batchedAcrossCalls() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+
+        // 5 voters, weight 1 each, all ranking 0>1>2
+        address[5] memory voters = [
+            address(0x1), address(0x2), address(0x3), address(0x4), address(0x5)
+        ];
+        uint8[] memory r = new uint8[](3);
+        r[0] = 0; r[1] = 1; r[2] = 2;
+        for (uint256 i = 0; i < 5; i++) {
+            _giveWeight(voters[i], cfg.snapshotBlock, 1);
+            vm.prank(voters[i]); voting.castBallot(id, r);
+        }
+
+        vm.warp(cfg.endTime + 1);
+        assertFalse(voting.tallyBallots(id, 2));
+        assertFalse(voting.tallyBallots(id, 2));
+        assertTrue (voting.tallyBallots(id, 2));
+        // Once done, further calls return true and are idempotent
+        assertTrue (voting.tallyBallots(id, 50));
+
+        int256[][] memory M = voting.getPairwiseMatrix(id);
+        assertEq(M[0][1], 5);
+        assertEq(M[0][2], 5);
+        assertEq(M[1][2], 5);
+    }
+
+    function test_tallyBallots_zeroMaxIsNoop() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        _giveWeight(ALICE, cfg.snapshotBlock, 10);
+        uint8[] memory r = new uint8[](1); r[0] = 0;
+        vm.prank(ALICE); voting.castBallot(id, r);
+        vm.warp(cfg.endTime + 1);
+        assertFalse(voting.tallyBallots(id, 0));
+        assertEq(voting.getElection(id).ballotsProcessed, 0);
+    }
+
+    function test_tallyBallots_zeroWeightVoterContributesNothing() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        // ALICE has weight 0 (default); BOB has weight 7
+        _giveWeight(BOB, cfg.snapshotBlock, 7);
+        uint8[] memory r = new uint8[](2); r[0] = 0; r[1] = 1;
+        vm.prank(ALICE); voting.castBallot(id, r);
+        vm.prank(BOB);   voting.castBallot(id, r);
+
+        vm.warp(cfg.endTime + 1);
+        voting.tallyBallots(id, 10);
+        int256[][] memory M = voting.getPairwiseMatrix(id);
+        assertEq(M[0][1], 7);
+        assertEq(M[1][0], 0);
+    }
+
+    function test_tallyBallots_revertsBeforeEndTime() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.VotingStillOpen.selector, cfg.endTime, block.timestamp));
+        voting.tallyBallots(id, 10);
+    }
+
+    function test_tallyBallots_revertsOnUnknownElection() public {
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.UnknownElection.selector, 99));
+        voting.tallyBallots(99, 10);
+    }
 }

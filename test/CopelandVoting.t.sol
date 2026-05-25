@@ -429,4 +429,36 @@ contract CopelandVotingTest is Test {
         assertEq(r[1], 1);
         assertEq(r[2], 2);
     }
+
+    function test_castBallot_revertsWhenFinalized() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        vm.warp(cfg.endTime + 1);
+        voting.tallyBallots(id, 10);
+        voting.finalize(id);
+
+        // The election is finalized — VotingNotOpen reverts first (time-based check is earlier),
+        // but we want to ensure no ballot can land. Either revert is acceptable.
+        uint8[] memory r = new uint8[](1);
+        vm.prank(ALICE);
+        vm.expectRevert();
+        voting.castBallot(id, r);
+    }
+
+    function test_castBallot_revertsAfterEndDuringTallying() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        _giveWeight(ALICE, cfg.snapshotBlock, 1);
+        uint8[] memory r = new uint8[](1); r[0] = 0;
+        vm.prank(ALICE); voting.castBallot(id, r);
+
+        vm.warp(cfg.endTime + 1);
+        voting.tallyBallots(id, 10); // phase becomes Tallying
+
+        vm.prank(BOB);
+        vm.expectRevert(abi.encodeWithSelector(
+            ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp
+        ));
+        voting.castBallot(id, r);
+    }
 }

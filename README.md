@@ -11,7 +11,7 @@ A standalone Solidity contract that runs Copeland elections fully onchain on Eth
 - **Permissionless**: anyone can create an election; consumers pick the election ID they trust.
 - **Replaceable ballots**: voters can recast at any time before the deadline.
 - **Lazy batched tally**: pay gas only when you need the result; spread across multiple transactions.
-- **Deterministic ordering**: Copeland score → sum of pairwise margins → candidate index. Always a strict total order.
+- **Deterministic ordering**: Copeland score → Minimax (smallest worst-defeat margin) → candidate index. Always a strict total order.
 - **Partial rankings**: voters rank any subset of candidates; unranked candidates contribute nothing (no implicit ordering).
 
 ## Design

@@ -64,7 +64,7 @@ interface ICopelandVoting {
     function getBallot(uint256 electionId, address voter) external view returns (uint8[] memory);
     function getPairwiseMatrix(uint256 electionId) external view returns (int256[][] memory);
     function getCopelandScores(uint256 electionId) external view returns (int256[] memory);
-    function getMarginSums(uint256 electionId) external view returns (int256[] memory);
+    function getMinimaxScores(uint256 electionId) external view returns (int256[] memory);
     function getVoters(uint256 electionId) external view returns (address[] memory);
     function electionCount() external view returns (uint256);
 

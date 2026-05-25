@@ -28,7 +28,7 @@ contract CopelandVoting is ICopelandVoting {
         uint256 ballotsProcessed;
         int256[] pairwiseFlat;
         int256[] copelandScores;
-        int256[] marginSums;
+        int256[] minimaxScores;
         uint8[] finalRanking;
     }
 
@@ -168,12 +168,12 @@ contract CopelandVoting is ICopelandVoting {
             revert TallyNotComplete(e.ballotsProcessed, e.voters.length);
         }
 
-        (int256[] memory scores, int256[] memory margins) =
-            CopelandTally.computeScoresAndMargins(e.pairwiseFlat, c);
-        uint8[] memory ranking = CopelandTally.sortRanking(scores, margins);
+        (int256[] memory scores, int256[] memory minimax) =
+            CopelandTally.computeScoresAndMinimax(e.pairwiseFlat, c);
+        uint8[] memory ranking = CopelandTally.sortRanking(scores, minimax);
 
         e.copelandScores = scores;
-        e.marginSums = margins;
+        e.minimaxScores = minimax;
         e.finalRanking = ranking;
         e.phase = TallyPhase.Finalized;
         emit Finalized(electionId, ranking);
@@ -204,8 +204,8 @@ contract CopelandVoting is ICopelandVoting {
         return _elections[electionId].copelandScores;
     }
 
-    function getMarginSums(uint256 electionId) external view returns (int256[] memory) {
-        return _elections[electionId].marginSums;
+    function getMinimaxScores(uint256 electionId) external view returns (int256[] memory) {
+        return _elections[electionId].minimaxScores;
     }
 
     function getVoters(uint256 electionId) external view returns (address[] memory) {

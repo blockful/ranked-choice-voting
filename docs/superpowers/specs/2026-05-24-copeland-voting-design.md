@@ -34,7 +34,7 @@ YAGNI: ship Copeland only. A pluggable strategy interface can be added later if 
 | Integration | Standalone contract (no Governor coupling) |
 | Ballot format | Partial ranking with explicit abstention (silent on unranked pairs) |
 | Voting method | Copeland only |
-| Tiebreaker | Sum of pairwise margins; final fallback = candidate index |
+| Tiebreaker | Minimax (smallest worst-defeat margin); final fallback = candidate index |
 | Vote changes | Replaceable (latest ballot wins) |
 | Deployment shape | Single registry contract holding many elections |
 | Target chain | Ethereum mainnet first |
@@ -86,7 +86,7 @@ interface ICopelandVoting {
     function getBallot(uint256 electionId, address voter) external view returns (uint8[] memory);
     function getPairwiseMatrix(uint256 electionId) external view returns (int256[][] memory);
     function getCopelandScores(uint256 electionId) external view returns (int256[] memory);
-    function getMarginSums(uint256 electionId) external view returns (int256[] memory);
+    function getMinimaxScores(uint256 electionId) external view returns (int256[] memory);
     function getVoters(uint256 electionId) external view returns (address[] memory);
     function electionCount() external view returns (uint256);
 
@@ -126,7 +126,7 @@ struct Election {
     uint256 ballotsProcessed;                      // cursor into voters[]
     int256[] pairwiseFlat;                         // C×C matrix flattened; pairwise[i*C+j] = sum of voter weights for i preferred to j
     int256[] copelandScores;                       // size C; +1 win / -1 loss / 0 tie per pair
-    int256[] marginSums;                           // size C; tiebreaker
+    int256[] minimaxScores;                        // size C; tiebreaker
     uint8[] finalRanking;                          // size C; set in finalize()
 }
 ```
@@ -151,12 +151,13 @@ score[i] = sum over j ≠ i of sign(M[i][j] - M[j][i])
           = (# pairs i won) - (# pairs i lost)
 ```
 
-Margin sum tiebreaker:
+Minimax tiebreaker:
 ```
-margin[i] = sum over j ≠ i of (M[i][j] - M[j][i])
+minimax[i] = min over j ≠ i of (M[i][j] - M[j][i])
 ```
+This is the smallest pairwise margin across all opponents (i.e., the *worst defeat*, signed so that winning is positive). Higher is better.
 
-Final ordering: sort candidates by `(score desc, margin desc, candidate index asc)`. Index ordering is the final deterministic fallback.
+Final ordering: sort candidates by `(score desc, minimax desc, candidate index asc)`. Index ordering is the final deterministic fallback.
 
 ### Two-phase batched tally
 
@@ -164,7 +165,7 @@ Tally cannot complete in one tx on mainnet for nontrivial elections. Split into 
 
 **Phase 1 — `tallyBallots(electionId, maxBallots)`:** Iterates `voters[]` from the `ballotsProcessed` cursor, fetches each voter's weight via `votingToken.getPastVotes(voter, snapshotBlock)`, walks the ballot, updates the flat matrix. Advances cursor; returns `true` when all ballots processed. Can be called many times until done.
 
-**Phase 2 — `finalize(electionId)`:** Requires phase 1 done. Walks the C² matrix once to compute `copelandScores[]` and `marginSums[]`. Then performs insertion sort on `[0..C-1]` by the comparator above to produce `finalRanking`. Sets phase to `Finalized`. Single-tx — C ≤ 64 means at most 4096 matrix cells and a tiny sort.
+**Phase 2 — `finalize(electionId)`:** Requires phase 1 done. Walks the C² matrix once to compute `copelandScores[]` and `minimaxScores[]`. Then performs insertion sort on `[0..C-1]` by the comparator above to produce `finalRanking`. Sets phase to `Finalized`. Single-tx — C ≤ 64 means at most 4096 matrix cells and a tiny sort.
 
 Gas estimate (rough, mainnet pricing):
 - Per ballot: ~30k base + k(k-1)/2 SSTORE-adjacent ops + 1 `getPastVotes` external call. For k=10 candidates ranked, ~50k–200k gas.

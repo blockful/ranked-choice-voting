@@ -385,9 +385,9 @@ contract CopelandVotingTest is Test {
         assertEq(scores[0], 0);
         assertEq(scores[2], -2);
 
-        int256[] memory margins = voting.getMarginSums(id);
-        // candidate 1: (10 vs 0) over 0 + (10 vs 0) over 2 = +20
-        assertEq(margins[1], 20);
+        int256[] memory minimax = voting.getMinimaxScores(id);
+        // candidate 1: min(10-0, 10-0) = 10
+        assertEq(minimax[1], 10);
     }
 
     function test_finalize_revertsIfTallyNotComplete() public {

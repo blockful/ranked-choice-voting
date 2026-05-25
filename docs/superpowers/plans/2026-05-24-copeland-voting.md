@@ -4,7 +4,7 @@
 
 **Goal:** Build a standalone `CopelandVoting` contract on Ethereum mainnet that runs Copeland-method ranked choice elections weighted by `IVotes` snapshots, with replaceable ballots, lazy batched tally, and a deterministic final ordering of all candidates.
 
-**Architecture:** A single registry contract holds many elections in a `mapping(uint256 => Election)`. Each Election stores candidates, replaceable ballots (overwritten on recast), and a flat int256 pairwise matrix. Tally is two-phase: `tallyBallots` paginates through `voters[]` to populate the matrix; `finalize` computes Copeland scores from the matrix, applies sum-of-margins tiebreaker, and sorts candidate indices into the final ranking. A pure `CopelandTally` library holds the scoring math so it's testable in isolation.
+**Architecture:** A single registry contract holds many elections in a `mapping(uint256 => Election)`. Each Election stores candidates, replaceable ballots (overwritten on recast), and a flat int256 pairwise matrix. Tally is two-phase: `tallyBallots` paginates through `voters[]` to populate the matrix; `finalize` computes Copeland scores from the matrix, applies Minimax (smallest worst-defeat margin) tiebreaker, and sorts candidate indices into the final ranking. A pure `CopelandTally` library holds the scoring math so it's testable in isolation.
 
 **Tech Stack:** Solidity ^0.8.26, Foundry (forge + forge-std), OpenZeppelin contracts (`IVotes` interface), MIT license.
 
@@ -17,7 +17,7 @@
 | File | Responsibility |
 |---|---|
 | `src/interfaces/ICopelandVoting.sol` | Public interface, structs (`ElectionConfig`, `ElectionView`), `TallyPhase` enum, events |
-| `src/libraries/CopelandTally.sol` | Pure helpers: `computeScoresAndMargins(matrix, C)`, `sortRanking(scores, margins, C)` |
+| `src/libraries/CopelandTally.sol` | Pure helpers: `computeScoresAndMinimax(matrix, C)`, `sortRanking(scores, minimaxScores, C)` |
 | `src/CopelandVoting.sol` | Main contract: storage, lifecycle, voting, tally orchestration, views |
 | `test/mocks/MockVotesToken.sol` | Minimal `IVotes` implementation for tests |
 | `test/CopelandTally.t.sol` | Library unit tests |
@@ -102,7 +102,7 @@ interface ICopelandVoting {
     function getBallot(uint256 electionId, address voter) external view returns (uint8[] memory);
     function getPairwiseMatrix(uint256 electionId) external view returns (int256[][] memory);
     function getCopelandScores(uint256 electionId) external view returns (int256[] memory);
-    function getMarginSums(uint256 electionId) external view returns (int256[] memory);
+    function getMinimaxScores(uint256 electionId) external view returns (int256[] memory);
     function getVoters(uint256 electionId) external view returns (address[] memory);
     function electionCount() external view returns (uint256);
 
@@ -218,23 +218,23 @@ import {CopelandTally} from "../src/libraries/CopelandTally.sol";
 contract CopelandTallyTest is Test {
     function test_sortRanking_strictScoreOrder() public pure {
         int256[] memory scores = new int256[](3);
-        int256[] memory margins = new int256[](3);
-        scores[0] = 1;  margins[0] = 0;
-        scores[1] = 2;  margins[1] = 0;
-        scores[2] = 0;  margins[2] = 0;
-        uint8[] memory r = CopelandTally.sortRanking(scores, margins);
+        int256[] memory minimaxScores = new int256[](3);
+        scores[0] = 1;  minimaxScores[0] = 0;
+        scores[1] = 2;  minimaxScores[1] = 0;
+        scores[2] = 0;  minimaxScores[2] = 0;
+        uint8[] memory r = CopelandTally.sortRanking(scores, minimaxScores);
         assertEq(r[0], 1);
         assertEq(r[1], 0);
         assertEq(r[2], 2);
     }
 
-    function test_sortRanking_marginTiebreaker() public pure {
+    function test_sortRanking_minimaxTiebreaker() public pure {
         int256[] memory scores = new int256[](3);
-        int256[] memory margins = new int256[](3);
-        scores[0] = 1;  margins[0] = 5;
-        scores[1] = 1;  margins[1] = 10;
-        scores[2] = 1;  margins[2] = 1;
-        uint8[] memory r = CopelandTally.sortRanking(scores, margins);
+        int256[] memory minimaxScores = new int256[](3);
+        scores[0] = 1;  minimaxScores[0] = 5;
+        scores[1] = 1;  minimaxScores[1] = 10;
+        scores[2] = 1;  minimaxScores[2] = 1;
+        uint8[] memory r = CopelandTally.sortRanking(scores, minimaxScores);
         assertEq(r[0], 1);
         assertEq(r[1], 0);
         assertEq(r[2], 2);
@@ -242,9 +242,9 @@ contract CopelandTallyTest is Test {
 
     function test_sortRanking_indexFallback() public pure {
         int256[] memory scores = new int256[](3);
-        int256[] memory margins = new int256[](3);
+        int256[] memory minimaxScores = new int256[](3);
         // all tied → ascending index order
-        uint8[] memory r = CopelandTally.sortRanking(scores, margins);
+        uint8[] memory r = CopelandTally.sortRanking(scores, minimaxScores);
         assertEq(r[0], 0);
         assertEq(r[1], 1);
         assertEq(r[2], 2);
@@ -252,11 +252,11 @@ contract CopelandTallyTest is Test {
 
     function test_sortRanking_negativeScores() public pure {
         int256[] memory scores = new int256[](3);
-        int256[] memory margins = new int256[](3);
-        scores[0] = -2; margins[0] = -10;
-        scores[1] = 0;  margins[1] = 0;
-        scores[2] = 2;  margins[2] = 10;
-        uint8[] memory r = CopelandTally.sortRanking(scores, margins);
+        int256[] memory minimaxScores = new int256[](3);
+        scores[0] = -2; minimaxScores[0] = -10;
+        scores[1] = 0;  minimaxScores[1] = 0;
+        scores[2] = 2;  minimaxScores[2] = 10;
+        uint8[] memory r = CopelandTally.sortRanking(scores, minimaxScores);
         assertEq(r[0], 2);
         assertEq(r[1], 1);
         assertEq(r[2], 0);
@@ -280,18 +280,18 @@ pragma solidity ^0.8.26;
 /// @title CopelandTally
 /// @notice Pure functions implementing Copeland-method tally math.
 library CopelandTally {
-    /// @notice Sort candidate indices by (score desc, margin desc, index asc).
+    /// @notice Sort candidate indices by (score desc, minimax desc, index asc).
     /// @dev Insertion sort — input sizes are bounded (C <= 64).
     /// @param scores Copeland scores per candidate (length = C)
-    /// @param margins Sum of pairwise margins per candidate (length = C; same order as scores)
+    /// @param minimaxScores Minimax tiebreaker per candidate (length = C; same order as scores; higher is better)
     /// @return ranking Candidate indices ordered most-preferred first
-    function sortRanking(int256[] memory scores, int256[] memory margins)
+    function sortRanking(int256[] memory scores, int256[] memory minimaxScores)
         internal
         pure
         returns (uint8[] memory ranking)
     {
         uint256 c = scores.length;
-        require(c == margins.length, "length mismatch");
+        require(c == minimaxScores.length, "length mismatch");
         ranking = new uint8[](c);
         for (uint256 i = 0; i < c; i++) {
             ranking[i] = uint8(i);
@@ -300,7 +300,7 @@ library CopelandTally {
         for (uint256 i = 1; i < c; i++) {
             uint8 cur = ranking[i];
             uint256 j = i;
-            while (j > 0 && _isGreater(cur, ranking[j - 1], scores, margins)) {
+            while (j > 0 && _isGreater(cur, ranking[j - 1], scores, minimaxScores)) {
                 ranking[j] = ranking[j - 1];
                 j--;
             }
@@ -308,14 +308,14 @@ library CopelandTally {
         }
     }
 
-    /// @dev True iff candidate `a` ranks above candidate `b` by (score, margin, index).
-    function _isGreater(uint8 a, uint8 b, int256[] memory scores, int256[] memory margins)
+    /// @dev True iff candidate `a` ranks above candidate `b` by (score, minimax, index).
+    function _isGreater(uint8 a, uint8 b, int256[] memory scores, int256[] memory minimaxScores)
         private
         pure
         returns (bool)
     {
         if (scores[a] != scores[b]) return scores[a] > scores[b];
-        if (margins[a] != margins[b]) return margins[a] > margins[b];
+        if (minimaxScores[a] != minimaxScores[b]) return minimaxScores[a] > minimaxScores[b];
         return a < b;
     }
 }
@@ -330,68 +330,73 @@ Expected: PASS (4 tests).
 
 ```bash
 git add src/libraries/CopelandTally.sol test/CopelandTally.t.sol
-git commit -m "feat: CopelandTally.sortRanking with score+margin+index ordering"
+git commit -m "feat: CopelandTally.sortRanking with score+minimax+index ordering"
 ```
 
 ---
 
-## Task 4: CopelandTally library — computeScoresAndMargins
+## Task 4: CopelandTally library — computeScoresAndMinimax
 
 **Files:**
 - Modify: `src/libraries/CopelandTally.sol`
 - Modify: `test/CopelandTally.t.sol`
 
-- [ ] **Step 1: Add failing tests for computeScoresAndMargins**
+- [ ] **Step 1: Add failing tests for computeScoresAndMinimax**
 
 Append to `test/CopelandTally.t.sol` (inside the `CopelandTallyTest` contract):
 
 ```solidity
-    function test_computeScoresAndMargins_simpleWin() public pure {
+    function test_computeScoresAndMinimax_simpleWin() public pure {
         // 2 candidates, A beats B with weight 100 vs 0
         int256[] memory matrix = new int256[](4); // C=2 → 2*2
         matrix[0 * 2 + 1] = 100; // A > B = 100
         matrix[1 * 2 + 0] = 0;   // B > A = 0
-        (int256[] memory scores, int256[] memory margins) = CopelandTally.computeScoresAndMargins(matrix, 2);
+        (int256[] memory scores, int256[] memory minimax) = CopelandTally.computeScoresAndMinimax(matrix, 2);
         assertEq(scores[0], 1);
         assertEq(scores[1], -1);
-        assertEq(margins[0], 100);
-        assertEq(margins[1], -100);
+        // With only one opponent, minimax == the single pairwise margin
+        assertEq(minimax[0], 100);
+        assertEq(minimax[1], -100);
     }
 
-    function test_computeScoresAndMargins_threeWayTie() public pure {
+    function test_computeScoresAndMinimax_threeWayTie() public pure {
         // 3 candidates, each pair tied 50-50
         int256[] memory matrix = new int256[](9); // C=3 → 3*3
         matrix[0 * 3 + 1] = 50; matrix[1 * 3 + 0] = 50;
         matrix[0 * 3 + 2] = 50; matrix[2 * 3 + 0] = 50;
         matrix[1 * 3 + 2] = 50; matrix[2 * 3 + 1] = 50;
-        (int256[] memory scores, int256[] memory margins) = CopelandTally.computeScoresAndMargins(matrix, 3);
+        (int256[] memory scores, int256[] memory minimax) = CopelandTally.computeScoresAndMinimax(matrix, 3);
         for (uint256 i = 0; i < 3; i++) {
             assertEq(scores[i], 0);
-            assertEq(margins[i], 0);
+            assertEq(minimax[i], 0);
         }
     }
 
-    function test_computeScoresAndMargins_condorcetWinner() public pure {
+    function test_computeScoresAndMinimax_condorcetWinner() public pure {
         // 3 candidates, A beats both B and C; B beats C
         int256[] memory matrix = new int256[](9);
         matrix[0 * 3 + 1] = 60; matrix[1 * 3 + 0] = 40; // A>B 60-40
         matrix[0 * 3 + 2] = 70; matrix[2 * 3 + 0] = 30; // A>C 70-30
         matrix[1 * 3 + 2] = 55; matrix[2 * 3 + 1] = 45; // B>C 55-45
-        (int256[] memory scores, int256[] memory margins) = CopelandTally.computeScoresAndMargins(matrix, 3);
+        (int256[] memory scores, int256[] memory minimax) = CopelandTally.computeScoresAndMinimax(matrix, 3);
         assertEq(scores[0], 2);  // A wins both
         assertEq(scores[1], 0);  // B wins one, loses one
         assertEq(scores[2], -2); // C loses both
-        assertEq(margins[0], (60 - 40) + (70 - 30));   // +50
-        assertEq(margins[1], (40 - 60) + (55 - 45));   // -10
-        assertEq(margins[2], (30 - 70) + (45 - 55));   // -50
+        // Minimax = smallest pairwise margin across opponents.
+        // A: min(60-40, 70-30) = min(20, 40) = 20
+        // B: min(40-60, 55-45) = min(-20, 10) = -20
+        // C: min(30-70, 45-55) = min(-40, -10) = -40
+        assertEq(minimax[0], 20);
+        assertEq(minimax[1], -20);
+        assertEq(minimax[2], -40);
     }
 
-    function test_computeScoresAndMargins_emptyMatrix() public pure {
+    function test_computeScoresAndMinimax_emptyMatrix() public pure {
         int256[] memory matrix = new int256[](9);
-        (int256[] memory scores, int256[] memory margins) = CopelandTally.computeScoresAndMargins(matrix, 3);
+        (int256[] memory scores, int256[] memory minimax) = CopelandTally.computeScoresAndMinimax(matrix, 3);
         for (uint256 i = 0; i < 3; i++) {
             assertEq(scores[i], 0);
-            assertEq(margins[i], 0);
+            assertEq(minimax[i], 0);
         }
     }
 ```
@@ -401,35 +406,43 @@ Append to `test/CopelandTally.t.sol` (inside the `CopelandTallyTest` contract):
 Run: `forge test --match-contract CopelandTallyTest -vv`
 Expected: FAIL (function doesn't exist).
 
-- [ ] **Step 3: Implement computeScoresAndMargins**
+- [ ] **Step 3: Implement computeScoresAndMinimax**
 
 Append to `src/libraries/CopelandTally.sol` (inside the `CopelandTally` library, after `sortRanking`):
 
 ```solidity
-    /// @notice Compute Copeland scores and sum-of-margin tiebreakers from a flat pairwise matrix.
+    /// @notice Compute Copeland scores and Minimax tiebreaker values from a flat pairwise matrix.
     /// @param matrix Flat C*C matrix; matrix[i*C+j] = total weight of voters who explicitly preferred i over j.
     /// @param c Candidate count.
     /// @return scores Copeland score per candidate (+1 win, -1 loss, 0 tie, summed across opponents).
-    /// @return margins Sum of (M[i][j] - M[j][i]) across all opponents, for use as tiebreaker.
-    function computeScoresAndMargins(int256[] memory matrix, uint256 c)
+    /// @return minimaxScores Minimax score per candidate: the SMALLEST pairwise margin across opponents.
+    ///         Higher = better (Condorcet winner has positive minimaxScore; Condorcet loser has strongly negative).
+    ///         For c == 1, returns 0.
+    function computeScoresAndMinimax(int256[] memory matrix, uint256 c)
         internal
         pure
-        returns (int256[] memory scores, int256[] memory margins)
+        returns (int256[] memory scores, int256[] memory minimaxScores)
     {
         require(matrix.length == c * c, "matrix size");
         scores = new int256[](c);
-        margins = new int256[](c);
+        minimaxScores = new int256[](c);
         for (uint256 i = 0; i < c; i++) {
+            bool any = false;
+            int256 minMargin = 0;
             for (uint256 j = 0; j < c; j++) {
                 if (i == j) continue;
                 int256 m = matrix[i * c + j] - matrix[j * c + i];
-                margins[i] += m;
                 if (m > 0) {
                     scores[i] += 1;
                 } else if (m < 0) {
                     scores[i] -= 1;
                 }
+                if (!any || m < minMargin) {
+                    minMargin = m;
+                    any = true;
+                }
             }
+            if (any) minimaxScores[i] = minMargin;
         }
     }
 ```
@@ -443,7 +456,7 @@ Expected: PASS (8 tests total).
 
 ```bash
 git add src/libraries/CopelandTally.sol test/CopelandTally.t.sol
-git commit -m "feat: CopelandTally.computeScoresAndMargins from flat pairwise matrix"
+git commit -m "feat: CopelandTally.computeScoresAndMinimax from flat pairwise matrix"
 ```
 
 ---
@@ -574,7 +587,7 @@ contract CopelandVoting is ICopelandVoting {
         uint256 ballotsProcessed;
         int256[] pairwiseFlat;
         int256[] copelandScores;
-        int256[] marginSums;
+        int256[] minimaxScores;
         uint8[] finalRanking;
     }
 
@@ -648,7 +661,7 @@ contract CopelandVoting is ICopelandVoting {
         revert("not implemented");
     }
 
-    function getMarginSums(uint256) external pure returns (int256[] memory) {
+    function getMinimaxScores(uint256) external pure returns (int256[] memory) {
         revert("not implemented");
     }
 
@@ -1315,7 +1328,7 @@ git commit -m "test: tallyBallots reverts when voting still open / unknown id"
 ## Task 13: finalize
 
 **Files:**
-- Modify: `src/CopelandVoting.sol` (finalize, getRanking, getCopelandScores, getMarginSums)
+- Modify: `src/CopelandVoting.sol` (finalize, getRanking, getCopelandScores, getMinimaxScores)
 - Modify: `test/CopelandVoting.t.sol`
 
 - [ ] **Step 1: Add failing tests**
@@ -1353,9 +1366,9 @@ Append to `CopelandVotingTest`:
         assertEq(scores[0], 0);
         assertEq(scores[2], -2);
 
-        int256[] memory margins = voting.getMarginSums(id);
-        // candidate 1: (10 vs 0) over 0 + (10 vs 0) over 2 = +20
-        assertEq(margins[1], 20);
+        int256[] memory minimax = voting.getMinimaxScores(id);
+        // candidate 1: min worst margin = min(10, 10) = 10
+        assertEq(minimax[1], 10);
     }
 
     function test_finalize_revertsIfTallyNotComplete() public {
@@ -1404,11 +1417,11 @@ Append to `CopelandVotingTest`:
 Run: `forge test --match-contract CopelandVotingTest -vv`
 Expected: 4 new tests FAIL.
 
-- [ ] **Step 3: Implement finalize + score/margin/ranking getters**
+- [ ] **Step 3: Implement finalize + score/minimax/ranking getters**
 
 In `src/CopelandVoting.sol`:
 - Add an import at the top: `import {CopelandTally} from "./libraries/CopelandTally.sol";`
-- Replace the `finalize`, `getRanking`, `getCopelandScores`, `getMarginSums` stubs with:
+- Replace the `finalize`, `getRanking`, `getCopelandScores`, `getMinimaxScores` stubs with:
 
 ```solidity
     function finalize(uint256 electionId) external {
@@ -1423,12 +1436,12 @@ In `src/CopelandVoting.sol`:
             revert TallyNotComplete(e.ballotsProcessed, e.voters.length);
         }
 
-        (int256[] memory scores, int256[] memory margins) =
-            CopelandTally.computeScoresAndMargins(e.pairwiseFlat, c);
-        uint8[] memory ranking = CopelandTally.sortRanking(scores, margins);
+        (int256[] memory scores, int256[] memory minimax) =
+            CopelandTally.computeScoresAndMinimax(e.pairwiseFlat, c);
+        uint8[] memory ranking = CopelandTally.sortRanking(scores, minimax);
 
         e.copelandScores = scores;
-        e.marginSums = margins;
+        e.minimaxScores = minimax;
         e.finalRanking = ranking;
         e.phase = TallyPhase.Finalized;
         emit Finalized(electionId, ranking);
@@ -1442,8 +1455,8 @@ In `src/CopelandVoting.sol`:
         return _elections[electionId].copelandScores;
     }
 
-    function getMarginSums(uint256 electionId) external view returns (int256[] memory) {
-        return _elections[electionId].marginSums;
+    function getMinimaxScores(uint256 electionId) external view returns (int256[] memory) {
+        return _elections[electionId].minimaxScores;
     }
 ```
 
@@ -1456,7 +1469,7 @@ Expected: PASS (all 27 tests).
 
 ```bash
 git add src/CopelandVoting.sol test/CopelandVoting.t.sol
-git commit -m "feat: finalize + ranking/score/margin getters via CopelandTally"
+git commit -m "feat: finalize + ranking/score/minimax getters via CopelandTally"
 ```
 
 ---

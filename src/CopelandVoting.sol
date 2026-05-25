@@ -168,8 +168,7 @@ contract CopelandVoting is ICopelandVoting {
             revert TallyNotComplete(e.ballotsProcessed, e.voters.length);
         }
 
-        (int256[] memory scores, int256[] memory minimax) =
-            CopelandTally.computeScoresAndMinimax(e.pairwiseFlat, c);
+        (int256[] memory scores, int256[] memory minimax) = CopelandTally.computeScoresAndMinimax(e.pairwiseFlat, c);
         uint8[] memory ranking = CopelandTally.sortRanking(scores, minimax);
 
         e.copelandScores = scores;

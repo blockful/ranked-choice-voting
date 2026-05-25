@@ -12,7 +12,7 @@ contract CopelandVotingTest is Test {
     MockVotesToken internal token;
 
     address internal constant ALICE = address(0xA11CE);
-    address internal constant BOB   = address(0xB0B);
+    address internal constant BOB = address(0xB0B);
     address internal constant CAROL = address(0xCA801);
 
     function setUp() public {
@@ -82,7 +82,9 @@ contract CopelandVotingTest is Test {
     function test_createElection_revertsOnTooManyCandidates() public {
         ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
         cfg.candidates = new bytes32[](65);
-        for (uint256 i = 0; i < 65; i++) cfg.candidates[i] = bytes32(i + 1);
+        for (uint256 i = 0; i < 65; i++) {
+            cfg.candidates[i] = bytes32(i + 1);
+        }
         vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.TooManyCandidates.selector, 65, 64));
         voting.createElection(cfg);
     }
@@ -97,7 +99,9 @@ contract CopelandVotingTest is Test {
     function test_createElection_revertsOnFutureSnapshotBlock() public {
         ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
         cfg.snapshotBlock = block.number; // not strictly past
-        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.InvalidSnapshotBlock.selector, block.number, block.number));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICopelandVoting.InvalidSnapshotBlock.selector, block.number, block.number)
+        );
         voting.createElection(cfg);
     }
 
@@ -125,7 +129,9 @@ contract CopelandVotingTest is Test {
     function test_castBallot_storesRankingAndAppendsVoter() public {
         uint256 id = voting.createElection(_baseConfig());
         uint8[] memory r = new uint8[](3);
-        r[0] = 2; r[1] = 0; r[2] = 1;
+        r[0] = 2;
+        r[1] = 0;
+        r[2] = 1;
 
         vm.prank(ALICE);
         voting.castBallot(id, r);
@@ -144,7 +150,8 @@ contract CopelandVotingTest is Test {
     function test_castBallot_emitsEvent() public {
         uint256 id = voting.createElection(_baseConfig());
         uint8[] memory r = new uint8[](2);
-        r[0] = 0; r[1] = 1;
+        r[0] = 0;
+        r[1] = 1;
 
         vm.expectEmit(true, true, false, true);
         emit ICopelandVoting.BallotCast(id, ALICE, r);
@@ -165,9 +172,12 @@ contract CopelandVotingTest is Test {
         uint256 id = voting.createElection(_baseConfig());
         uint8[] memory r = new uint8[](1);
         r[0] = 0;
-        vm.prank(ALICE); voting.castBallot(id, r);
-        vm.prank(BOB);   voting.castBallot(id, r);
-        vm.prank(CAROL); voting.castBallot(id, r);
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
+        vm.prank(BOB);
+        voting.castBallot(id, r);
+        vm.prank(CAROL);
+        voting.castBallot(id, r);
         address[] memory vs = voting.getVoters(id);
         assertEq(vs.length, 3);
         assertEq(vs[0], ALICE);
@@ -178,9 +188,12 @@ contract CopelandVotingTest is Test {
     function test_castBallot_recastOverwrites() public {
         uint256 id = voting.createElection(_baseConfig());
         uint8[] memory r1 = new uint8[](2);
-        r1[0] = 0; r1[1] = 1;
+        r1[0] = 0;
+        r1[1] = 1;
         uint8[] memory r2 = new uint8[](3);
-        r2[0] = 2; r2[1] = 1; r2[2] = 0;
+        r2[0] = 2;
+        r2[1] = 1;
+        r2[2] = 0;
 
         vm.startPrank(ALICE);
         voting.castBallot(id, r1);
@@ -207,12 +220,12 @@ contract CopelandVotingTest is Test {
     function test_castBallot_revertsBeforeStart() public {
         ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
         cfg.startTime = uint64(block.timestamp + 1 hours);
-        cfg.endTime   = uint64(block.timestamp + 2 hours);
+        cfg.endTime = uint64(block.timestamp + 2 hours);
         uint256 id = voting.createElection(cfg);
         uint8[] memory r = new uint8[](1);
-        vm.expectRevert(abi.encodeWithSelector(
-            ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp
-        ));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp)
+        );
         voting.castBallot(id, r);
     }
 
@@ -221,9 +234,9 @@ contract CopelandVotingTest is Test {
         uint256 id = voting.createElection(cfg);
         vm.warp(cfg.endTime + 1);
         uint8[] memory r = new uint8[](1);
-        vm.expectRevert(abi.encodeWithSelector(
-            ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp
-        ));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp)
+        );
         voting.castBallot(id, r);
     }
 
@@ -245,7 +258,9 @@ contract CopelandVotingTest is Test {
     function test_castBallot_revertsDuplicateRanking() public {
         uint256 id = voting.createElection(_baseConfig());
         uint8[] memory r = new uint8[](3);
-        r[0] = 1; r[1] = 0; r[2] = 1; // duplicate of 1
+        r[0] = 1; // duplicate of 1
+        r[1] = 0;
+        r[2] = 1;
         vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.DuplicateRanking.selector, 1));
         voting.castBallot(id, r);
     }
@@ -258,17 +273,22 @@ contract CopelandVotingTest is Test {
         ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
         uint256 id = voting.createElection(cfg);
         _giveWeight(ALICE, cfg.snapshotBlock, 100);
-        _giveWeight(BOB,   cfg.snapshotBlock, 50);
+        _giveWeight(BOB, cfg.snapshotBlock, 50);
 
         // Alice ranks 0>1>2
         uint8[] memory ra = new uint8[](3);
-        ra[0] = 0; ra[1] = 1; ra[2] = 2;
-        vm.prank(ALICE); voting.castBallot(id, ra);
+        ra[0] = 0;
+        ra[1] = 1;
+        ra[2] = 2;
+        vm.prank(ALICE);
+        voting.castBallot(id, ra);
 
         // Bob ranks 2>1 (partial, says nothing about 0)
         uint8[] memory rb = new uint8[](2);
-        rb[0] = 2; rb[1] = 1;
-        vm.prank(BOB); voting.castBallot(id, rb);
+        rb[0] = 2;
+        rb[1] = 1;
+        vm.prank(BOB);
+        voting.castBallot(id, rb);
 
         vm.warp(cfg.endTime + 1);
         bool done = voting.tallyBallots(id, 10);
@@ -293,22 +313,23 @@ contract CopelandVotingTest is Test {
         uint256 id = voting.createElection(cfg);
 
         // 5 voters, weight 1 each, all ranking 0>1>2
-        address[5] memory voters = [
-            address(0x1), address(0x2), address(0x3), address(0x4), address(0x5)
-        ];
+        address[5] memory voters = [address(0x1), address(0x2), address(0x3), address(0x4), address(0x5)];
         uint8[] memory r = new uint8[](3);
-        r[0] = 0; r[1] = 1; r[2] = 2;
+        r[0] = 0;
+        r[1] = 1;
+        r[2] = 2;
         for (uint256 i = 0; i < 5; i++) {
             _giveWeight(voters[i], cfg.snapshotBlock, 1);
-            vm.prank(voters[i]); voting.castBallot(id, r);
+            vm.prank(voters[i]);
+            voting.castBallot(id, r);
         }
 
         vm.warp(cfg.endTime + 1);
         assertFalse(voting.tallyBallots(id, 2));
         assertFalse(voting.tallyBallots(id, 2));
-        assertTrue (voting.tallyBallots(id, 2));
+        assertTrue(voting.tallyBallots(id, 2));
         // Once done, further calls return true and are idempotent
-        assertTrue (voting.tallyBallots(id, 50));
+        assertTrue(voting.tallyBallots(id, 50));
 
         int256[][] memory M = voting.getPairwiseMatrix(id);
         assertEq(M[0][1], 5);
@@ -320,8 +341,10 @@ contract CopelandVotingTest is Test {
         ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
         uint256 id = voting.createElection(cfg);
         _giveWeight(ALICE, cfg.snapshotBlock, 10);
-        uint8[] memory r = new uint8[](1); r[0] = 0;
-        vm.prank(ALICE); voting.castBallot(id, r);
+        uint8[] memory r = new uint8[](1);
+        r[0] = 0;
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
         vm.warp(cfg.endTime + 1);
         assertFalse(voting.tallyBallots(id, 0));
         assertEq(voting.getElection(id).ballotsProcessed, 0);
@@ -332,9 +355,13 @@ contract CopelandVotingTest is Test {
         uint256 id = voting.createElection(cfg);
         // ALICE has weight 0 (default); BOB has weight 7
         _giveWeight(BOB, cfg.snapshotBlock, 7);
-        uint8[] memory r = new uint8[](2); r[0] = 0; r[1] = 1;
-        vm.prank(ALICE); voting.castBallot(id, r);
-        vm.prank(BOB);   voting.castBallot(id, r);
+        uint8[] memory r = new uint8[](2);
+        r[0] = 0;
+        r[1] = 1;
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
+        vm.prank(BOB);
+        voting.castBallot(id, r);
 
         vm.warp(cfg.endTime + 1);
         voting.tallyBallots(id, 10);
@@ -361,8 +388,11 @@ contract CopelandVotingTest is Test {
         _giveWeight(ALICE, cfg.snapshotBlock, 10);
 
         uint8[] memory r = new uint8[](3);
-        r[0] = 1; r[1] = 0; r[2] = 2; // Alice: 1>0>2
-        vm.prank(ALICE); voting.castBallot(id, r);
+        r[0] = 1; // Alice: 1>0>2
+        r[1] = 0;
+        r[2] = 2;
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
 
         vm.warp(cfg.endTime + 1);
         voting.tallyBallots(id, 10);
@@ -396,11 +426,14 @@ contract CopelandVotingTest is Test {
         // No voters at all → ballotsProcessed (0) == voters.length (0), so finalize should SUCCEED.
         // To test the revert: add a voter, partial tally, then try finalize.
         _giveWeight(ALICE, cfg.snapshotBlock, 1);
-        uint8[] memory r = new uint8[](1); r[0] = 0;
-        vm.prank(ALICE); voting.castBallot(id, r);
+        uint8[] memory r = new uint8[](1);
+        r[0] = 0;
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
         // Add a second voter we won't process
         _giveWeight(BOB, cfg.snapshotBlock, 1);
-        vm.prank(BOB); voting.castBallot(id, r);
+        vm.prank(BOB);
+        voting.castBallot(id, r);
 
         vm.warp(cfg.endTime + 1);
         voting.tallyBallots(id, 1); // process only 1 of 2
@@ -449,16 +482,18 @@ contract CopelandVotingTest is Test {
         ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
         uint256 id = voting.createElection(cfg);
         _giveWeight(ALICE, cfg.snapshotBlock, 1);
-        uint8[] memory r = new uint8[](1); r[0] = 0;
-        vm.prank(ALICE); voting.castBallot(id, r);
+        uint8[] memory r = new uint8[](1);
+        r[0] = 0;
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
 
         vm.warp(cfg.endTime + 1);
         voting.tallyBallots(id, 10); // phase becomes Tallying
 
         vm.prank(BOB);
-        vm.expectRevert(abi.encodeWithSelector(
-            ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp
-        ));
+        vm.expectRevert(
+            abi.encodeWithSelector(ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp)
+        );
         voting.castBallot(id, r);
     }
 }

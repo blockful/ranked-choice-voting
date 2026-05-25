@@ -19,7 +19,9 @@ contract CopelandVotingScenariosTest is Test {
 
     function _cfg(uint8 c) internal view returns (ICopelandVoting.ElectionConfig memory cfg) {
         bytes32[] memory cands = new bytes32[](c);
-        for (uint8 i = 0; i < c; i++) cands[i] = bytes32(uint256(i + 1));
+        for (uint8 i = 0; i < c; i++) {
+            cands[i] = bytes32(uint256(i + 1));
+        }
         cfg = ICopelandVoting.ElectionConfig({
             candidates: cands,
             votingToken: IVotes(address(token)),
@@ -70,12 +72,21 @@ contract CopelandVotingScenariosTest is Test {
         token.setPastVotes(grpBC, cfg.snapshotBlock, 100);
         token.setPastVotes(grpCA, cfg.snapshotBlock, 100);
 
-        uint8[] memory ab = new uint8[](2); ab[0] = 0; ab[1] = 1;
-        uint8[] memory bc = new uint8[](2); bc[0] = 1; bc[1] = 2;
-        uint8[] memory ca = new uint8[](2); ca[0] = 2; ca[1] = 0;
-        vm.prank(grpAB); voting.castBallot(id, ab);
-        vm.prank(grpBC); voting.castBallot(id, bc);
-        vm.prank(grpCA); voting.castBallot(id, ca);
+        uint8[] memory ab = new uint8[](2);
+        ab[0] = 0;
+        ab[1] = 1;
+        uint8[] memory bc = new uint8[](2);
+        bc[0] = 1;
+        bc[1] = 2;
+        uint8[] memory ca = new uint8[](2);
+        ca[0] = 2;
+        ca[1] = 0;
+        vm.prank(grpAB);
+        voting.castBallot(id, ab);
+        vm.prank(grpBC);
+        voting.castBallot(id, bc);
+        vm.prank(grpCA);
+        voting.castBallot(id, ca);
 
         vm.warp(cfg.endTime + 1);
         while (!voting.tallyBallots(id, 10)) {}
@@ -127,8 +138,12 @@ contract CopelandVotingScenariosTest is Test {
         assertEq(ranking.length, 12);
         // Permutation invariant
         bool[] memory seen = new bool[](12);
-        for (uint256 i = 0; i < 12; i++) seen[ranking[i]] = true;
-        for (uint256 i = 0; i < 12; i++) assertTrue(seen[i]);
+        for (uint256 i = 0; i < 12; i++) {
+            seen[ranking[i]] = true;
+        }
+        for (uint256 i = 0; i < 12; i++) {
+            assertTrue(seen[i]);
+        }
     }
 
     /// @dev Replaceable ballots: last vote stands.
@@ -138,8 +153,12 @@ contract CopelandVotingScenariosTest is Test {
         address voter = address(0x31);
         token.setPastVotes(voter, cfg.snapshotBlock, 50);
 
-        uint8[] memory first = new uint8[](2); first[0] = 0; first[1] = 1;
-        uint8[] memory second = new uint8[](2); second[0] = 2; second[1] = 1;
+        uint8[] memory first = new uint8[](2);
+        first[0] = 0;
+        first[1] = 1;
+        uint8[] memory second = new uint8[](2);
+        second[0] = 2;
+        second[1] = 1;
         vm.startPrank(voter);
         voting.castBallot(id, first);
         voting.castBallot(id, second);

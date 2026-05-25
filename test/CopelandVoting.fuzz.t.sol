@@ -19,7 +19,9 @@ contract CopelandVotingFuzz is Test {
 
     function _config(uint8 numCandidates) internal view returns (ICopelandVoting.ElectionConfig memory cfg) {
         bytes32[] memory cands = new bytes32[](numCandidates);
-        for (uint8 i = 0; i < numCandidates; i++) cands[i] = bytes32(uint256(i + 1));
+        for (uint8 i = 0; i < numCandidates; i++) {
+            cands[i] = bytes32(uint256(i + 1));
+        }
         cfg = ICopelandVoting.ElectionConfig({
             candidates: cands,
             votingToken: IVotes(address(token)),
@@ -109,7 +111,9 @@ contract CopelandVotingFuzz is Test {
             token.setPastVotes(v, snapshotBlock, vi * 10);
             uint8[] memory r = new uint8[](c);
             // Ballot: shift by vi
-            for (uint8 i = 0; i < c; i++) r[i] = uint8((i + vi) % c);
+            for (uint8 i = 0; i < c; i++) {
+                r[i] = uint8((i + vi) % c);
+            }
             vm.prank(v);
             voting.castBallot(id, r);
         }

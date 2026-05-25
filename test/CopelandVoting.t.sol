@@ -197,4 +197,56 @@ contract CopelandVotingTest is Test {
         assertEq(vs.length, 1);
         assertEq(vs[0], ALICE);
     }
+
+    function test_castBallot_revertsOnUnknownElection() public {
+        uint8[] memory r = new uint8[](1);
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.UnknownElection.selector, 42));
+        voting.castBallot(42, r);
+    }
+
+    function test_castBallot_revertsBeforeStart() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        cfg.startTime = uint64(block.timestamp + 1 hours);
+        cfg.endTime   = uint64(block.timestamp + 2 hours);
+        uint256 id = voting.createElection(cfg);
+        uint8[] memory r = new uint8[](1);
+        vm.expectRevert(abi.encodeWithSelector(
+            ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp
+        ));
+        voting.castBallot(id, r);
+    }
+
+    function test_castBallot_revertsAfterEnd() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        vm.warp(cfg.endTime + 1);
+        uint8[] memory r = new uint8[](1);
+        vm.expectRevert(abi.encodeWithSelector(
+            ICopelandVoting.VotingNotOpen.selector, cfg.startTime, cfg.endTime, block.timestamp
+        ));
+        voting.castBallot(id, r);
+    }
+
+    function test_castBallot_revertsRankingTooLong() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r = new uint8[](4); // candidates.length is 3
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.RankingTooLong.selector, 4, 3));
+        voting.castBallot(id, r);
+    }
+
+    function test_castBallot_revertsOutOfBoundsIndex() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r = new uint8[](1);
+        r[0] = 3; // candidate count is 3 → valid indices are 0,1,2
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.CandidateIndexOutOfBounds.selector, 3, 3));
+        voting.castBallot(id, r);
+    }
+
+    function test_castBallot_revertsDuplicateRanking() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r = new uint8[](3);
+        r[0] = 1; r[1] = 0; r[2] = 1; // duplicate of 1
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.DuplicateRanking.selector, 1));
+        voting.castBallot(id, r);
+    }
 }

@@ -92,13 +92,28 @@ contract CopelandVoting is ICopelandVoting {
 
     function castBallot(uint256 electionId, uint8[] calldata ranking) external {
         Election storage e = _elections[electionId];
-        if (e.candidates.length == 0) revert UnknownElection(electionId);
-        // (Time window / phase / index validation added in Task 9)
+        uint256 c = e.candidates.length;
+        if (c == 0) revert UnknownElection(electionId);
+        if (e.phase == TallyPhase.Finalized) revert ElectionFinalized();
+        if (block.timestamp < e.startTime || block.timestamp > e.endTime) {
+            revert VotingNotOpen(e.startTime, e.endTime, block.timestamp);
+        }
+        if (ranking.length > c) revert RankingTooLong(ranking.length, c);
+
+        // Duplicate check via bitmap. MAX_CANDIDATES <= 64 → single uint256 is enough.
+        uint256 seen;
+        for (uint256 i = 0; i < ranking.length; i++) {
+            uint8 idx = ranking[i];
+            if (idx >= c) revert CandidateIndexOutOfBounds(idx, c);
+            uint256 bit = uint256(1) << idx;
+            if (seen & bit != 0) revert DuplicateRanking(idx);
+            seen |= bit;
+        }
 
         e.ballots[msg.sender] = ranking;
         if (e.voterIndexPlusOne[msg.sender] == 0) {
             e.voters.push(msg.sender);
-            e.voterIndexPlusOne[msg.sender] = e.voters.length; // 1-based
+            e.voterIndexPlusOne[msg.sender] = e.voters.length;
         }
         emit BallotCast(electionId, msg.sender, ranking);
     }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {ICopelandVoting} from "./interfaces/ICopelandVoting.sol";
+import {CopelandTally} from "./libraries/CopelandTally.sol";
 
 /// @title CopelandVoting
 /// @notice Onchain Copeland-method ranked choice voting for DAOs.
@@ -155,12 +156,31 @@ contract CopelandVoting is ICopelandVoting {
         done = end == total;
     }
 
-    function finalize(uint256) external pure {
-        revert("not implemented");
+    function finalize(uint256 electionId) external {
+        Election storage e = _elections[electionId];
+        uint256 c = e.candidates.length;
+        if (c == 0) revert UnknownElection(electionId);
+        if (e.phase == TallyPhase.Finalized) revert TallyAlreadyFinalized();
+        if (block.timestamp <= e.endTime) revert VotingStillOpen(e.endTime, block.timestamp);
+        // Auto-advance phase to Tallying if there are no voters (so the check below holds trivially).
+        if (e.phase == TallyPhase.NotStarted) e.phase = TallyPhase.Tallying;
+        if (e.ballotsProcessed != e.voters.length) {
+            revert TallyNotComplete(e.ballotsProcessed, e.voters.length);
+        }
+
+        (int256[] memory scores, int256[] memory margins) =
+            CopelandTally.computeScoresAndMargins(e.pairwiseFlat, c);
+        uint8[] memory ranking = CopelandTally.sortRanking(scores, margins);
+
+        e.copelandScores = scores;
+        e.marginSums = margins;
+        e.finalRanking = ranking;
+        e.phase = TallyPhase.Finalized;
+        emit Finalized(electionId, ranking);
     }
 
-    function getRanking(uint256) external pure returns (uint8[] memory) {
-        revert("not implemented");
+    function getRanking(uint256 electionId) external view returns (uint8[] memory) {
+        return _elections[electionId].finalRanking;
     }
 
     function getBallot(uint256 electionId, address voter) external view returns (uint8[] memory) {
@@ -180,12 +200,12 @@ contract CopelandVoting is ICopelandVoting {
         }
     }
 
-    function getCopelandScores(uint256) external pure returns (int256[] memory) {
-        revert("not implemented");
+    function getCopelandScores(uint256 electionId) external view returns (int256[] memory) {
+        return _elections[electionId].copelandScores;
     }
 
-    function getMarginSums(uint256) external pure returns (int256[] memory) {
-        revert("not implemented");
+    function getMarginSums(uint256 electionId) external view returns (int256[] memory) {
+        return _elections[electionId].marginSums;
     }
 
     function getVoters(uint256 electionId) external view returns (address[] memory) {

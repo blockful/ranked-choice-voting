@@ -354,4 +354,79 @@ contract CopelandVotingTest is Test {
         vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.UnknownElection.selector, 99));
         voting.tallyBallots(99, 10);
     }
+
+    function test_finalize_setsPhaseAndRanking() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        _giveWeight(ALICE, cfg.snapshotBlock, 10);
+
+        uint8[] memory r = new uint8[](3);
+        r[0] = 1; r[1] = 0; r[2] = 2; // Alice: 1>0>2
+        vm.prank(ALICE); voting.castBallot(id, r);
+
+        vm.warp(cfg.endTime + 1);
+        voting.tallyBallots(id, 10);
+
+        vm.expectEmit(true, false, false, false);
+        emit ICopelandVoting.Finalized(id, new uint8[](0)); // payload not strictly checked
+        voting.finalize(id);
+
+        uint8[] memory ranking = voting.getRanking(id);
+        assertEq(ranking.length, 3);
+        assertEq(ranking[0], 1); // candidate 1 wins (beats 0 and 2)
+        assertEq(ranking[1], 0); // candidate 0 second (beats 2)
+        assertEq(ranking[2], 2); // candidate 2 last
+
+        ICopelandVoting.ElectionView memory v = voting.getElection(id);
+        assertEq(uint8(v.phase), uint8(ICopelandVoting.TallyPhase.Finalized));
+
+        int256[] memory scores = voting.getCopelandScores(id);
+        assertEq(scores[1], 2);
+        assertEq(scores[0], 0);
+        assertEq(scores[2], -2);
+
+        int256[] memory margins = voting.getMarginSums(id);
+        // candidate 1: (10 vs 0) over 0 + (10 vs 0) over 2 = +20
+        assertEq(margins[1], 20);
+    }
+
+    function test_finalize_revertsIfTallyNotComplete() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        // No voters at all → ballotsProcessed (0) == voters.length (0), so finalize should SUCCEED.
+        // To test the revert: add a voter, partial tally, then try finalize.
+        _giveWeight(ALICE, cfg.snapshotBlock, 1);
+        uint8[] memory r = new uint8[](1); r[0] = 0;
+        vm.prank(ALICE); voting.castBallot(id, r);
+        // Add a second voter we won't process
+        _giveWeight(BOB, cfg.snapshotBlock, 1);
+        vm.prank(BOB); voting.castBallot(id, r);
+
+        vm.warp(cfg.endTime + 1);
+        voting.tallyBallots(id, 1); // process only 1 of 2
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.TallyNotComplete.selector, 1, 2));
+        voting.finalize(id);
+    }
+
+    function test_finalize_revertsIfAlreadyFinalized() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        vm.warp(cfg.endTime + 1);
+        voting.tallyBallots(id, 10);
+        voting.finalize(id);
+        vm.expectRevert(ICopelandVoting.TallyAlreadyFinalized.selector);
+        voting.finalize(id);
+    }
+
+    function test_finalize_noBallotsYieldsIdentityRanking() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        vm.warp(cfg.endTime + 1);
+        voting.tallyBallots(id, 10);
+        voting.finalize(id);
+        uint8[] memory r = voting.getRanking(id);
+        assertEq(r[0], 0);
+        assertEq(r[1], 1);
+        assertEq(r[2], 2);
+    }
 }

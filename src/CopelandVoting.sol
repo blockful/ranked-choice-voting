@@ -2,12 +2,13 @@
 pragma solidity ^0.8.26;
 
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ICopelandVoting} from "./interfaces/ICopelandVoting.sol";
 import {CopelandTally} from "./libraries/CopelandTally.sol";
 
 /// @title CopelandVoting
 /// @notice Onchain Copeland-method ranked choice voting for DAOs.
-contract CopelandVoting is ICopelandVoting {
+contract CopelandVoting is ICopelandVoting, ReentrancyGuard {
     uint8 public constant MAX_CANDIDATES = 64;
 
     struct Election {
@@ -22,6 +23,9 @@ contract CopelandVoting is ICopelandVoting {
         // ballot storage
         address[] voters;
         mapping(address => uint8[]) ballots;
+        /// @dev Stored as `voters.length + 1` on first cast so that the default
+        ///      zero value distinguishes "never voted". Only the zero / non-zero
+        ///      distinction is consulted; the index itself is not read back.
         mapping(address => uint256) voterIndexPlusOne;
         // tally state
         TallyPhase phase;
@@ -91,7 +95,7 @@ contract CopelandVoting is ICopelandVoting {
 
     // --- stubs (to be implemented in later tasks) ---
 
-    function castBallot(uint256 electionId, uint8[] calldata ranking) external {
+    function castBallot(uint256 electionId, uint8[] calldata ranking) external nonReentrant {
         Election storage e = _elections[electionId];
         uint256 c = e.candidates.length;
         if (c == 0) revert UnknownElection(electionId);
@@ -119,7 +123,10 @@ contract CopelandVoting is ICopelandVoting {
         emit BallotCast(electionId, msg.sender, ranking);
     }
 
-    function tallyBallots(uint256 electionId, uint256 maxBallots) external returns (bool done) {
+    /// @notice Tally up to `maxBallots` voter ballots, accumulating weighted pairwise wins.
+    /// @dev Reverts if any voter's weight exceeds int256 max. Standard ERC20Votes implementations
+    ///      cap at uint208, so this only matters with non-standard token contracts.
+    function tallyBallots(uint256 electionId, uint256 maxBallots) external nonReentrant returns (bool done) {
         Election storage e = _elections[electionId];
         uint256 c = e.candidates.length;
         if (c == 0) revert UnknownElection(electionId);
@@ -140,6 +147,9 @@ contract CopelandVoting is ICopelandVoting {
             address voter = e.voters[vi];
             uint256 weight = e.votingToken.getPastVotes(voter, e.snapshotBlock);
             if (weight == 0) continue;
+            if (weight > uint256(type(int256).max)) {
+                revert WeightExceedsInt256Max(voter, weight);
+            }
             uint8[] storage ranking = e.ballots[voter];
             uint256 k = ranking.length;
             for (uint256 a = 0; a < k; a++) {
@@ -156,7 +166,7 @@ contract CopelandVoting is ICopelandVoting {
         done = end == total;
     }
 
-    function finalize(uint256 electionId) external {
+    function finalize(uint256 electionId) external nonReentrant {
         Election storage e = _elections[electionId];
         uint256 c = e.candidates.length;
         if (c == 0) revert UnknownElection(electionId);

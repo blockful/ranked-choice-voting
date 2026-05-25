@@ -53,6 +53,7 @@ interface ICopelandVoting {
     error RankingTooLong(uint256 provided, uint256 max);
     error CandidateIndexOutOfBounds(uint8 index, uint256 max);
     error DuplicateRanking(uint8 index);
+    error WeightExceedsInt256Max(address voter, uint256 weight);
 
     function createElection(ElectionConfig calldata cfg) external returns (uint256 electionId);
     function castBallot(uint256 electionId, uint8[] calldata ranking) external;

@@ -496,4 +496,19 @@ contract CopelandVotingTest is Test {
         );
         voting.castBallot(id, r);
     }
+
+    function test_tallyBallots_revertsWhenWeightExceedsInt256Max() public {
+        ICopelandVoting.ElectionConfig memory cfg = _baseConfig();
+        uint256 id = voting.createElection(cfg);
+        uint256 huge = uint256(type(int256).max) + 1;
+        _giveWeight(ALICE, cfg.snapshotBlock, huge);
+        uint8[] memory r = new uint8[](1);
+        r[0] = 0;
+        vm.prank(ALICE);
+        voting.castBallot(id, r);
+
+        vm.warp(cfg.endTime + 1);
+        vm.expectRevert(abi.encodeWithSelector(ICopelandVoting.WeightExceedsInt256Max.selector, ALICE, huge));
+        voting.tallyBallots(id, 10);
+    }
 }

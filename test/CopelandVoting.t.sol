@@ -174,4 +174,27 @@ contract CopelandVotingTest is Test {
         assertEq(vs[1], BOB);
         assertEq(vs[2], CAROL);
     }
+
+    function test_castBallot_recastOverwrites() public {
+        uint256 id = voting.createElection(_baseConfig());
+        uint8[] memory r1 = new uint8[](2);
+        r1[0] = 0; r1[1] = 1;
+        uint8[] memory r2 = new uint8[](3);
+        r2[0] = 2; r2[1] = 1; r2[2] = 0;
+
+        vm.startPrank(ALICE);
+        voting.castBallot(id, r1);
+        voting.castBallot(id, r2);
+        vm.stopPrank();
+
+        uint8[] memory stored = voting.getBallot(id, ALICE);
+        assertEq(stored.length, 3);
+        assertEq(stored[0], 2);
+        assertEq(stored[1], 1);
+        assertEq(stored[2], 0);
+
+        address[] memory vs = voting.getVoters(id);
+        assertEq(vs.length, 1);
+        assertEq(vs[0], ALICE);
+    }
 }

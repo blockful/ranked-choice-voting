@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ICopelandVoting} from "./interfaces/ICopelandVoting.sol";
+import {IRankedChoiceVoting} from "./interfaces/IRankedChoiceVoting.sol";
 import {CopelandTally} from "./libraries/CopelandTally.sol";
 
 /// @title CopelandVoting
@@ -186,6 +187,15 @@ contract CopelandVoting is ICopelandVoting, ReentrancyGuard {
         e.finalRanking = ranking;
         e.phase = TallyPhase.Finalized;
         emit Finalized(electionId, ranking);
+    }
+
+    /// @inheritdoc IRankedChoiceVoting
+    function getCurrentResult(uint256 electionId) external view returns (uint8[] memory) {
+        Election storage e = _elections[electionId];
+        if (e.candidates.length == 0) revert UnknownElection(electionId);
+        (int256[] memory scores, int256[] memory minimax) =
+            CopelandTally.computeScoresAndMinimax(e.pairwiseFlat, e.candidates.length);
+        return CopelandTally.sortRanking(scores, minimax);
     }
 
     function getRanking(uint256 electionId) external view returns (uint8[] memory) {

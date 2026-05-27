@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {CopelandVoting} from "../src/CopelandVoting.sol";
 import {ICopelandVoting} from "../src/interfaces/ICopelandVoting.sol";
+import {IRankedChoiceVoting} from "../src/interfaces/IRankedChoiceVoting.sol";
 import {MockVotesToken} from "./mocks/MockVotesToken.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
@@ -17,12 +18,12 @@ contract CopelandVotingScenariosTest is Test {
         vm.roll(block.number + 1);
     }
 
-    function _cfg(uint8 c) internal view returns (ICopelandVoting.ElectionConfig memory cfg) {
+    function _cfg(uint8 c) internal view returns (IRankedChoiceVoting.ElectionConfig memory cfg) {
         bytes32[] memory cands = new bytes32[](c);
         for (uint8 i = 0; i < c; i++) {
             cands[i] = bytes32(uint256(i + 1));
         }
-        cfg = ICopelandVoting.ElectionConfig({
+        cfg = IRankedChoiceVoting.ElectionConfig({
             candidates: cands,
             votingToken: IVotes(address(token)),
             snapshotBlock: block.number - 1,
@@ -34,7 +35,7 @@ contract CopelandVotingScenariosTest is Test {
 
     /// @dev A Condorcet winner (beats every other candidate head-to-head) must rank first.
     function test_condorcetWinnerRanksFirst() public {
-        ICopelandVoting.ElectionConfig memory cfg = _cfg(4);
+        IRankedChoiceVoting.ElectionConfig memory cfg = _cfg(4);
         uint256 id = voting.createElection(cfg);
 
         // Make candidate 0 a Condorcet winner: every voter ranks 0 first.
@@ -61,7 +62,7 @@ contract CopelandVotingScenariosTest is Test {
     /// @dev Condorcet cycle: A>B, B>C, C>A all with equal margins.
     /// Tiebreaker should produce a deterministic strict order.
     function test_condorcetCycleResolvedDeterministically() public {
-        ICopelandVoting.ElectionConfig memory cfg = _cfg(3);
+        IRankedChoiceVoting.ElectionConfig memory cfg = _cfg(3);
         uint256 id = voting.createElection(cfg);
 
         // Three voter groups
@@ -104,7 +105,7 @@ contract CopelandVotingScenariosTest is Test {
 
     /// @dev ENS Service Provider-style: 12 candidates, 20 voters, varying partial ballots.
     function test_ensServiceProviderStyle() public {
-        ICopelandVoting.ElectionConfig memory cfg = _cfg(12);
+        IRankedChoiceVoting.ElectionConfig memory cfg = _cfg(12);
         uint256 id = voting.createElection(cfg);
 
         // 20 voters, varying weights
@@ -148,7 +149,7 @@ contract CopelandVotingScenariosTest is Test {
 
     /// @dev Replaceable ballots: last vote stands.
     function test_replacementLastBallotWins() public {
-        ICopelandVoting.ElectionConfig memory cfg = _cfg(3);
+        IRankedChoiceVoting.ElectionConfig memory cfg = _cfg(3);
         uint256 id = voting.createElection(cfg);
         address voter = address(0x31);
         token.setPastVotes(voter, cfg.snapshotBlock, 50);

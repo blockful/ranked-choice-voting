@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {CopelandVoting} from "../src/CopelandVoting.sol";
 import {ICopelandVoting} from "../src/interfaces/ICopelandVoting.sol";
+import {IRankedChoiceVoting} from "../src/interfaces/IRankedChoiceVoting.sol";
 import {MockVotesToken} from "./mocks/MockVotesToken.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
@@ -17,12 +18,12 @@ contract CopelandVotingFuzz is Test {
         vm.roll(block.number + 1);
     }
 
-    function _config(uint8 numCandidates) internal view returns (ICopelandVoting.ElectionConfig memory cfg) {
+    function _config(uint8 numCandidates) internal view returns (IRankedChoiceVoting.ElectionConfig memory cfg) {
         bytes32[] memory cands = new bytes32[](numCandidates);
         for (uint8 i = 0; i < numCandidates; i++) {
             cands[i] = bytes32(uint256(i + 1));
         }
-        cfg = ICopelandVoting.ElectionConfig({
+        cfg = IRankedChoiceVoting.ElectionConfig({
             candidates: cands,
             votingToken: IVotes(address(token)),
             snapshotBlock: block.number - 1,
@@ -35,7 +36,7 @@ contract CopelandVotingFuzz is Test {
     /// @dev Final ranking is always a permutation of [0..C-1].
     function testFuzz_rankingIsPermutation(uint8 cRaw, uint64 weightSeed) public {
         uint8 c = uint8(bound(cRaw, 2, 8));
-        ICopelandVoting.ElectionConfig memory cfg = _config(c);
+        IRankedChoiceVoting.ElectionConfig memory cfg = _config(c);
         uint256 id = voting.createElection(cfg);
 
         // 5 voters, simple ballots, random weights
@@ -78,7 +79,7 @@ contract CopelandVotingFuzz is Test {
         uint8 c = uint8(bound(cRaw, 2, 6));
 
         // First run
-        ICopelandVoting.ElectionConfig memory cfg1 = _config(c);
+        IRankedChoiceVoting.ElectionConfig memory cfg1 = _config(c);
         uint256 id1 = voting.createElection(cfg1);
         _castFixedBallots(id1, cfg1.snapshotBlock, c);
         vm.warp(cfg1.endTime + 1);
@@ -89,7 +90,7 @@ contract CopelandVotingFuzz is Test {
         // Reset block + create second election with identical config and ballots
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1);
-        ICopelandVoting.ElectionConfig memory cfg2 = _config(c);
+        IRankedChoiceVoting.ElectionConfig memory cfg2 = _config(c);
         cfg2.startTime = uint64(block.timestamp);
         cfg2.endTime = uint64(block.timestamp + 1 days);
         uint256 id2 = voting.createElection(cfg2);

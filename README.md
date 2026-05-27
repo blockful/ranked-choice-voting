@@ -1,24 +1,35 @@
-# copeland-voting
+# ranked-choice-voting
 
-Onchain ranked-choice voting for DAOs — two interchangeable methods: Copeland and Schulze, sharing a common `IRankedChoiceVoting` interface.
+Onchain ranked-choice voting for DAOs with Copeland and Schulze methods.
 
-Two standalone Solidity contracts that run pairwise-Condorcet elections fully onchain on Ethereum mainnet. Voters submit ranked ballots weighted by `IVotes` (ERC20Votes / ERC721Votes) snapshots. Each contract outputs a deterministic ordering of all candidates — downstream consumers (Governors, council selection, budget allocators) interpret that ordering however they need. Pick **Copeland** for lower gas and simpler explainability, or **Schulze** when you expect Condorcet cycles and want a more discriminating tiebreaker.
+![CI](https://github.com/blockful/ranked-choice-voting/actions/workflows/test.yml/badge.svg) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.26-363636) ![Built with Foundry](https://img.shields.io/badge/Built%20with-Foundry-FFDB1C?logo=ethereum&logoColor=black)
 
-## Highlights
+## Overview
 
-- **Two methods, one interface**: `CopelandVoting` and `SchulzeVoting` both implement `IRankedChoiceVoting` — integrate once, swap methods with a single constructor change.
-- **Standalone**: no coupling to OpenZeppelin Governor or any specific DAO framework.
-- **Generic**: any `IVotes` token works (ERC20Votes, ERC721Votes, custom checkpointed tokens).
-- **Permissionless**: anyone can create an election; consumers pick the election ID they trust.
-- **Replaceable ballots**: voters can recast at any time before the deadline.
-- **Lazy batched tally**: pay gas only when you need the result; spread across multiple transactions.
-- **Live preview**: `getCurrentResult(id)` returns the ranking the contract would produce if `finalize()` were called right now — at any lifecycle phase.
-- **Deterministic ordering**: always a strict total order, with method-specific tiebreaks (Copeland → Minimax → index; Schulze → strongest-path → index).
-- **Partial rankings**: voters rank any subset of candidates; unranked candidates contribute nothing.
+Two standalone Solidity contracts that run pairwise-Condorcet ranked-choice elections fully onchain. Voters submit ranked ballots weighted by `IVotes` (ERC20Votes / ERC721Votes) snapshots. `CopelandVoting` and `SchulzeVoting` both implement the common `IRankedChoiceVoting` interface — integrate once, swap methods with a single constructor change. Each contract outputs a deterministic strict total order over all candidates; downstream consumers (Governors, council selectors, budget allocators) interpret that ordering however they need.
+
+Aimed at DAOs and onchain organizations that need a Condorcet-method election — council selection, grant allocation, prioritized lists, multi-winner committees — where the canonical "winner-take-all" Governor pattern doesn't fit and an ordered ranking is the natural output.
+
+Explicitly **not**: an audited contract, an instant-runoff (IRV) implementation, or an OpenZeppelin Governor replacement. It produces a ranking; combining that ranking with proposal execution is the integrator's job.
+
+## Features
+
+- Two methods, one interface — swap `CopelandVoting` <-> `SchulzeVoting` with no integration changes.
+- Standalone — no coupling to OpenZeppelin Governor or any DAO framework.
+- Generic — any `IVotes` token works (ERC20Votes, ERC721Votes, custom checkpointed tokens).
+- Permissionless — anyone can create an election, cast, tally, or finalize.
+- Replaceable ballots — voters can recast at any time before the deadline.
+- Lazy batched tally — pay gas only when you need the result; spread across multiple transactions.
+- Live preview — `getCurrentResult(id)` returns the ranking the contract would produce if `finalize()` were called right now, at any lifecycle phase.
+- Deterministic ordering — always a strict total order, with method-specific tiebreaks (Copeland: Minimax then index; Schulze: strongest-path then index).
+- Partial rankings — voters rank any subset of candidates; unranked candidates contribute nothing.
 
 ## Methods
 
-The full methodology, worked examples and tiebreak rules for both methods are in [docs/voting-methods.md](docs/voting-methods.md). Original Copeland design rationale and decision log: [docs/superpowers/specs/2026-05-24-copeland-voting-design.md](docs/superpowers/specs/2026-05-24-copeland-voting-design.md).
+- **Copeland** — each candidate's score is (head-to-head wins − losses); Minimax breaks ties, then candidate index. Cheaper to finalize (O(C²)) and easier to explain. Default choice unless you specifically expect cyclical preferences.
+- **Schulze** — Floyd-Warshall over the widest-path semiring produces strongest-path scores; candidate index breaks ties. Resolves asymmetric Condorcet cycles decisively at the cost of O(C³) finalize.
+
+Full methodology, worked examples and tiebreak rules: [docs/voting-methods.md](docs/voting-methods.md).
 
 ## Quick start
 
@@ -28,14 +39,17 @@ forge build
 forge test
 ```
 
-## Usage sketch
+Requires [Foundry](https://book.getfoundry.sh/).
+
+## Usage
 
 ```solidity
 import {IRankedChoiceVoting} from "src/interfaces/IRankedChoiceVoting.sol";
+import {CopelandVoting} from "src/CopelandVoting.sol";
+// or: import {SchulzeVoting} from "src/SchulzeVoting.sol";
 
-// Integrate against the common interface — swap CopelandVoting <-> SchulzeVoting freely.
+// Integrate against the common interface — swap methods freely.
 IRankedChoiceVoting voting = IRankedChoiceVoting(address(new CopelandVoting()));
-// or: IRankedChoiceVoting voting = IRankedChoiceVoting(address(new SchulzeVoting()));
 
 // 1. Create an election
 bytes32[] memory candidates = new bytes32[](3);
@@ -59,7 +73,7 @@ ranking[1] = 0; // Alice second
 ranking[2] = 1; // Bob third
 voting.castBallot(electionId, ranking);
 
-// 3. Live preview at any time — no need to wait for finalize
+// 3. Live preview at any time — no need to wait for finalize.
 uint8[] memory provisional = voting.getCurrentResult(electionId);
 
 // 4. After endTime, anyone tallies and finalizes
@@ -71,11 +85,27 @@ uint8[] memory orderedWinners = voting.getRanking(electionId);
 // orderedWinners[0] is the top-ranked candidate index
 ```
 
-## Limits
+Limits: maximum 64 candidates per election; voter weights bounded by `int256` max.
 
-- Maximum 64 candidates per election (kept under mainnet gas constraints for finalize)
-- Maximum 256-bit token weights per voter (standard `uint256`)
+## Deployments
+
+Not yet deployed to mainnet. Run via the deploy scripts in [`script/`](script/) (`DeployCopelandVoting.s.sol`, `DeploySchulzeVoting.s.sol`).
+
+## Documentation
+
+- [docs/voting-methods.md](docs/voting-methods.md) — full methodology, worked examples, gas table, tiebreak rules.
+- [docs/superpowers/specs/2026-05-25-multi-method-voting-design.md](docs/superpowers/specs/2026-05-25-multi-method-voting-design.md) — multi-method design spec.
+- [docs/superpowers/specs/2026-05-24-copeland-voting-design.md](docs/superpowers/specs/2026-05-24-copeland-voting-design.md) — original Copeland design rationale and decision log.
+- [docs/superpowers/plans/2026-05-25-multi-method-voting.md](docs/superpowers/plans/2026-05-25-multi-method-voting.md) — multi-method implementation plan.
+
+## Contributing
+
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, conventions, and PR process.
+
+## Security
+
+Report vulnerabilities per [SECURITY.md](SECURITY.md). **These contracts have not been independently audited** — production deployments should commission an audit first.
 
 ## License
 
-MIT
+[MIT](LICENSE).

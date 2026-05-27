@@ -44,7 +44,11 @@ contract SchulzeTallyTest is Test {
             [int256(15), 12, 28, 0, 14],
             [int256(23), 27, 21, 31, 0]
         ];
-        for (uint256 i = 0; i < 5; i++) for (uint256 j = 0; j < 5; j++) d[i * c + j] = dArr[i][j];
+        for (uint256 i = 0; i < 5; i++) {
+            for (uint256 j = 0; j < 5; j++) {
+                d[i * c + j] = dArr[i][j];
+            }
+        }
 
         int256[] memory p = SchulzeTally.computeStrongestPaths(d, c);
 
@@ -80,9 +84,13 @@ contract SchulzeTallyTest is Test {
     function test_strongestPaths_emptyMatrix() public pure {
         int256[] memory d = new int256[](9);
         int256[] memory p = SchulzeTally.computeStrongestPaths(d, 3);
-        for (uint256 i = 0; i < 9; i++) assertEq(p[i], 0);
+        for (uint256 i = 0; i < 9; i++) {
+            assertEq(p[i], 0);
+        }
         uint256[] memory scores = SchulzeTally.computeScores(p, 3);
-        for (uint256 i = 0; i < 3; i++) assertEq(scores[i], 0);
+        for (uint256 i = 0; i < 3; i++) {
+            assertEq(scores[i], 0);
+        }
     }
 
     function test_scores_condorcetWinner() public pure {

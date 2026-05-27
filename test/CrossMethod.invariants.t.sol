@@ -22,7 +22,9 @@ contract CrossMethodInvariants is Test {
 
     function _cfg(uint8 c) internal view returns (IRankedChoiceVoting.ElectionConfig memory cfg) {
         bytes32[] memory cands = new bytes32[](c);
-        for (uint8 i = 0; i < c; i++) cands[i] = bytes32(uint256(i + 1));
+        for (uint8 i = 0; i < c; i++) {
+            cands[i] = bytes32(uint256(i + 1));
+        }
         cfg = IRankedChoiceVoting.ElectionConfig({
             candidates: cands,
             votingToken: IVotes(address(token)),

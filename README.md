@@ -1,22 +1,24 @@
 # copeland-voting
 
-Onchain Copeland-method ranked choice voting for DAOs.
+Onchain ranked-choice voting for DAOs — two interchangeable methods: Copeland and Schulze, sharing a common `IRankedChoiceVoting` interface.
 
-A standalone Solidity contract that runs Copeland elections fully onchain on Ethereum mainnet. Voters submit ranked ballots weighted by `IVotes` (ERC20Votes / ERC721Votes) snapshots. The contract outputs a deterministic ordering of all candidates — downstream consumers (Governors, council selection, budget allocators) interpret that ordering however they need.
+Two standalone Solidity contracts that run pairwise-Condorcet elections fully onchain on Ethereum mainnet. Voters submit ranked ballots weighted by `IVotes` (ERC20Votes / ERC721Votes) snapshots. Each contract outputs a deterministic ordering of all candidates — downstream consumers (Governors, council selection, budget allocators) interpret that ordering however they need. Pick **Copeland** for lower gas and simpler explainability, or **Schulze** when you expect Condorcet cycles and want a more discriminating tiebreaker.
 
 ## Highlights
 
+- **Two methods, one interface**: `CopelandVoting` and `SchulzeVoting` both implement `IRankedChoiceVoting` — integrate once, swap methods with a single constructor change.
 - **Standalone**: no coupling to OpenZeppelin Governor or any specific DAO framework.
 - **Generic**: any `IVotes` token works (ERC20Votes, ERC721Votes, custom checkpointed tokens).
 - **Permissionless**: anyone can create an election; consumers pick the election ID they trust.
 - **Replaceable ballots**: voters can recast at any time before the deadline.
 - **Lazy batched tally**: pay gas only when you need the result; spread across multiple transactions.
-- **Deterministic ordering**: Copeland score → Minimax (smallest worst-defeat margin) → candidate index. Always a strict total order.
-- **Partial rankings**: voters rank any subset of candidates; unranked candidates contribute nothing (no implicit ordering).
+- **Live preview**: `getCurrentResult(id)` returns the ranking the contract would produce if `finalize()` were called right now — at any lifecycle phase.
+- **Deterministic ordering**: always a strict total order, with method-specific tiebreaks (Copeland → Minimax → index; Schulze → strongest-path → index).
+- **Partial rankings**: voters rank any subset of candidates; unranked candidates contribute nothing.
 
-## Design
+## Methods
 
-The full design rationale, decision log, and API contract live in [docs/superpowers/specs/2026-05-24-copeland-voting-design.md](docs/superpowers/specs/2026-05-24-copeland-voting-design.md).
+The full methodology, worked examples and tiebreak rules for both methods are in [docs/voting-methods.md](docs/voting-methods.md). Original Copeland design rationale and decision log: [docs/superpowers/specs/2026-05-24-copeland-voting-design.md](docs/superpowers/specs/2026-05-24-copeland-voting-design.md).
 
 ## Quick start
 
@@ -29,13 +31,19 @@ forge test
 ## Usage sketch
 
 ```solidity
+import {IRankedChoiceVoting} from "src/interfaces/IRankedChoiceVoting.sol";
+
+// Integrate against the common interface — swap CopelandVoting <-> SchulzeVoting freely.
+IRankedChoiceVoting voting = IRankedChoiceVoting(address(new CopelandVoting()));
+// or: IRankedChoiceVoting voting = IRankedChoiceVoting(address(new SchulzeVoting()));
+
 // 1. Create an election
 bytes32[] memory candidates = new bytes32[](3);
 candidates[0] = keccak256("Alice");
 candidates[1] = keccak256("Bob");
 candidates[2] = keccak256("Carol");
 
-uint256 electionId = voting.createElection(ICopelandVoting.ElectionConfig({
+uint256 electionId = voting.createElection(IRankedChoiceVoting.ElectionConfig({
     candidates: candidates,
     votingToken: ensToken,
     snapshotBlock: block.number - 1,
@@ -51,11 +59,14 @@ ranking[1] = 0; // Alice second
 ranking[2] = 1; // Bob third
 voting.castBallot(electionId, ranking);
 
-// 3. After endTime, anyone tallies and finalizes
-while (!voting.tallyBallots(electionId, 50)) {}  // batched
+// 3. Live preview at any time — no need to wait for finalize
+uint8[] memory provisional = voting.getCurrentResult(electionId);
+
+// 4. After endTime, anyone tallies and finalizes
+while (!voting.tallyBallots(electionId, 50)) {} // batched
 voting.finalize(electionId);
 
-// 4. Read the result
+// 5. Read the final result
 uint8[] memory orderedWinners = voting.getRanking(electionId);
 // orderedWinners[0] is the top-ranked candidate index
 ```

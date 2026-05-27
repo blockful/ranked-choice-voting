@@ -53,7 +53,9 @@ library SchulzeTally {
     function sortRanking(uint256[] memory scores) internal pure returns (uint8[] memory ranking) {
         uint256 c = scores.length;
         ranking = new uint8[](c);
-        for (uint256 i = 0; i < c; i++) ranking[i] = uint8(i);
+        for (uint256 i = 0; i < c; i++) {
+            ranking[i] = uint8(i);
+        }
         for (uint256 i = 1; i < c; i++) {
             uint8 cur = ranking[i];
             uint256 j = i;

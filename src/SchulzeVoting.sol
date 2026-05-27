@@ -180,8 +180,8 @@ contract SchulzeVoting is ISchulzeVoting, ReentrancyGuard {
         uint256[] memory scores = SchulzeTally.computeScores(paths, c);
         uint8[] memory ranking = SchulzeTally.sortRanking(scores);
 
-        e.schulzeScores = scores;     // persisted
-        e.finalRanking = ranking;     // persisted
+        e.schulzeScores = scores; // persisted
+        e.finalRanking = ranking; // persisted
         // strongest paths NOT persisted — recomputed on view (too large for storage at C=64)
 
         e.phase = TallyPhase.Finalized;

@@ -153,13 +153,34 @@ Why the second tiebreaker is shorter than Copeland's: Schulze's score already in
 
 | Aspect | Copeland | Schulze |
 |---|---|---|
-| Asymptotic finalize cost | O(C²) | O(C³) |
-| Mainnet gas at C=10 | ~200k | ~500k |
-| Mainnet gas at C=64 | ~5M | ~12M |
+| Asymptotic `finalize` cost | O(C²) | O(C³) |
+| `finalize` gas at C=10 (measured) | ~679k | ~1.11M |
+| `finalize` gas at C=64 | not benchmarked; scales ~O(C²) read + O(C) write | not benchmarked; scales ~O(C³) |
+| `getCurrentResult` view at C=10 (measured) | ~130k | ~823k |
+| `createElection` / `castBallot` / `tallyBallots` | identical (shared code) | identical (shared code) |
 | Resolves asymmetric Condorcet cycles? | No — falls back to index | Yes, via path strengths |
 | Resolves symmetric (perfectly-rotated) cycles? | No | No (both fall back to index) |
 | Explainability to non-experts | Easier | Harder |
 | When to choose | Default; lower cost; explicit "tied → first-listed candidate wins" is acceptable | When you expect cycles and want decisive non-arbitrary resolution |
+
+The two methods differ **only** at `finalize` and the result-views. Everything on the write path before finalize — `createElection`, `castBallot`, and `tallyBallots` — is identical code, so it costs the same regardless of method. See the reference benchmark below.
+
+### Reference benchmark — 100 voters × 10 candidates
+
+Measured by `test_gasBenchmark_{copeland,schulze}_100voters_10candidates` in [`test/Gas.benchmark.t.sol`](../test/Gas.benchmark.t.sol). Ballots are partial (4–7 candidates each); the tally is batched at 20 voters per call (5 batches). Reproduce with `forge test --match-contract GasBenchmark -vvv`.
+
+| Phase | Who pays | Txs | Copeland | Schulze |
+|---|---|---|---|---|
+| `createElection` | creator | 1 | ~645k | ~645k |
+| `castBallot` (first / avg) | each voter | 100 | ~134k / ~111k | ~134k / ~111k |
+| `castBallot` (total of 100) | voters, collectively | — | ~11.06M | ~11.06M |
+| `tallyBallots` (per batch of 20) | tallier(s) | 5 | ~768k | ~768k |
+| `tallyBallots` (total) | tallier(s) | — | ~3.84M | ~3.84M |
+| `finalize` | anyone | 1 | ~679k | ~1.11M |
+| `getCurrentResult` (view, post-finalize) | — | — | ~130k | ~823k |
+| **Grand total (write path)** | — | **107 txs** | **~16.2M** | **~16.7M** |
+
+The ~16M grand total is **not a single transaction** — it is spread across 107 transactions (1 create + 100 individual ballot casts + 5 tally batches + 1 finalize). No single transaction exceeds ~1.11M gas (Schulze finalize), comfortably under the ~30M mainnet block limit. The dominant aggregate cost (`castBallot`, ~11M) is borne by voters one at a time (~111k each), not by any single party.
 
 In practice, the two methods agree on the winner in the overwhelming majority of realistic elections — any scenario with a true Condorcet winner produces the same result under both. Where they diverge is exactly the case Schulze was designed for: cyclical pairwise preferences (A beats B, B beats C, C beats A) where Copeland's score alone cannot distinguish the cycle members and the index tiebreaker has to step in. The cross-method invariant tests assert this Condorcet agreement explicitly.
 
@@ -188,7 +209,7 @@ In both methods, the candidate-index fallback guarantees a strict total order.
 - Storage layout is parallel between the two contracts but they do NOT share storage; they're independent deployments.
 - **Neither contract has been independently audited.** This is production-shaped, not production-blessed.
 - Determinism: both methods are fully deterministic given the same pairwise matrix; the cross-method invariant tests in [`test/CrossMethod.invariants.t.sol`](../test/CrossMethod.invariants.t.sol) exercise this together with the identity-ranking guarantee (`getCurrentResult` on a freshly-created election returns `[0..C-1]`).
-- Gas figures in the comparison table above are rough order-of-magnitude estimates derived from the project's `.gas-snapshot` file and from the asymptotic complexities (Copeland's O(C²) versus Schulze's O(C³) Floyd-Warshall pass). Treat them as guides for capacity planning, not contractual SLAs — real costs depend on ballot length distribution, the EVM gas schedule of the target chain, and how many `tallyBallots` batches a particular election needs.
+- The 100-voter × 10-candidate figures in §8 are **measured** by `test/Gas.benchmark.t.sol` (run `forge test --match-contract GasBenchmark -vvv`), not estimated. Treat them as representative of that specific shape, not contractual SLAs — real costs depend on the candidate count `C` (matrix work scales O(C²), Schulze finalize O(C³)), ballot-length distribution, the EVM gas schedule of the target chain, and how many `tallyBallots` batches a given election needs. The C=64 cells are extrapolations and are not benchmarked.
 
 ## 12. Further reading
 
